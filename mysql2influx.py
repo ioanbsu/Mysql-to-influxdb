@@ -1,16 +1,15 @@
 #!/usr/bin/python
 
-import logging
-import os
 import argparse
+import logging
+import time
+from ConfigParser import RawConfigParser
+from datetime import datetime
+
 import MySQLdb
 import MySQLdb.cursors
-import time
-
-from ConfigParser import RawConfigParser
 from influxdb import InfluxDBClient
-from time_utils import get_epoch_from_datetime
-from datetime import datetime
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,9 +18,7 @@ class Mysql2Influx:
     def __init__(self,config):
 
         #TODO put site info into settings file
-        self._site_name = config.get('site_info','site_name')
         self._table = config.get('mysql','table')
-        self._siteid_field = config.get('mysql','siteid_field')
 
         if config.has_option('mysql','time_field'):
             self._time_field = config.get('mysql','time_field')
@@ -32,6 +29,7 @@ class Mysql2Influx:
         self._mysql_username = config.get('mysql','username')
         self._mysql_password = config.get('mysql','password')
         self._mysql_db = config.get('mysql','db')
+        self._mysql_port = config.get('mysql','port')
 
         self._influx_db_host = config.get('influx','host')
         self._influx_db_port = config.get('influx','port')
@@ -44,13 +42,13 @@ class Mysql2Influx:
 
         self.initialise_database()
 
-
     def initialise_database(self):
-        self._db_client = MySQLdb.connect ( self._mysql_host,
-                                            self._mysql_username,
-                                            self._mysql_password,
-                                            self._mysql_db,
-                                            cursorclass = MySQLdb.cursors.DictCursor
+        self._db_client = MySQLdb.connect(host=self._mysql_host,
+                                          user=self._mysql_username,
+                                          passwd=self._mysql_password,
+                                          db=self._mysql_db,
+                                          port=int(self._mysql_port),
+                                          cursorclass=MySQLdb.cursors.DictCursor
                                             )
 
         self._influx_client = InfluxDBClient(
@@ -109,22 +107,24 @@ class Mysql2Influx:
         #turn time into epoch timesa
         if data:
             logger.debug('Got data from mysql')
+            counter=1;
+            data_list =[]
             for row in data:
-                data_list =[]
                 for key in row.keys():
                     #format date to epoch
                     epoch_time = row[self._time_field].isoformat()
-                    if not isinstance(row[key],datetime):
+                    if not isinstance(row[key],datetime) and key != 'check_field':
                         data_point = {"measurement":key,
-                                     "tags":{"site_name":row[self._siteid_field],
-                                        "source": "wago"},
                                      "time" : "%sZ"%epoch_time,
                                    "fields" : {"value":row[key]}
                                     }
 
                         data_list.append(data_point)
                         logger.debug("data_point = %s"%data_point)
-                self._send_data_to_influx(data_list)
+                if counter%100==0:
+                    self._send_data_to_influx(data_list)
+                    data_list =[]
+                counter += 1
             self._complete = True
 
     def _update_rows(self):
