@@ -125,7 +125,8 @@ class Mysql2Influx:
                     self._send_data_to_influx(data_list)
                     data_list =[]
                 counter += 1
-            self._complete = True
+        self._send_data_to_influx(data_list)
+        self._complete = True
 
     def _update_rows(self):
         query = 'UPDATE %s SET %s=1  WHERE %s=0;'%(self._table,self._check_field,self._check_field)
